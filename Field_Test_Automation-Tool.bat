@@ -71,7 +71,7 @@ function Show-TimeoutMsgBox {
 
 
 # ==========================================
-# SISTEMA DE ATUALIZAÇÃO AUTOMÁTICA (REPOSITÓRIO PRIVADO + PAT)
+# SISTEMA DE ATUALIZAÇÃO AUTOMÁTICA (REPOSITÓRIO PÚBLICO)
 # ==========================================
 $CurrentVersionStr = "1.0"
 $CurrentVersion = [version]$CurrentVersionStr
@@ -80,75 +80,51 @@ $CurrentVersion = [version]$CurrentVersionStr
 $GitHubUser   = "engpctelecom"
 $GitHubRepo   = "ft-easy-tool"
 $Branch       = "main"
-$TokenFile    = Join-Path $env:WORK_DIR ".github_token.cred"
 
-# 1. SOLICITA E CRIPTOGRAFA O TOKEN (Apenas na primeira execução)
-if (-not (Test-Path -LiteralPath $TokenFile)) {
-    [void][System.Reflection.Assembly]::LoadWithPartialName('Microsoft.VisualBasic')
-    $InputPAT = [Microsoft.VisualBasic.Interaction]::InputBox("Insira seu GitHub PAT para habilitar as atualizações automáticas OTA.`n`nIsso será solicitado apenas uma vez e o token será salvo de forma criptografada no seu computador.", "Autenticação OTA")
+try {
+    $Timestamp = (Get-Date).Ticks
+    $RemoteVersionUrl = "https://raw.githubusercontent.com/$GitHubUser/$GitHubRepo/$Branch/version.txt?t=$Timestamp"
+    $RemoteScriptUrl  = "https://raw.githubusercontent.com/$GitHubUser/$GitHubRepo/$Branch/Field_Test_Automation-Tool.bat?t=$Timestamp"
 
-    if (-not [string]::IsNullOrWhiteSpace($InputPAT)) {
-        # Criptografa usando a API nativa do Windows (vinculado ao usuário atual do SO)
-        $SecurePAT = ConvertTo-SecureString $InputPAT -AsPlainText -Force
-        $SecurePAT | Export-Clixml -Path $TokenFile
+    $Headers = @{
+        "User-Agent" = "FTEasyTool-Updater" 
     }
-}
 
-# 2. LÊ O TOKEN CRIPTOGRAFADO E EXECUTA A VERIFICAÇÃO OTA
-if (Test-Path -LiteralPath $TokenFile) {
-    try {
-        # Descriptografa o token em memória apenas para a requisição
-        $SecurePAT = Import-Clixml -Path $TokenFile
-        $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePAT)
-        $GitHubToken = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
-        [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($BSTR)
+    $RemoteVersionStr = Invoke-RestMethod -Uri $RemoteVersionUrl -Headers $Headers -UseBasicParsing -ErrorAction Stop
+    $CleanVersionStr = $RemoteVersionStr -replace '[^\d\.]', ''
 
-        $Timestamp = (Get-Date).Ticks
-        $RemoteVersionUrl = "https://raw.githubusercontent.com/$GitHubUser/$GitHubRepo/$Branch/version.txt?t=$Timestamp"
-        $RemoteScriptUrl  = "https://raw.githubusercontent.com/$GitHubUser/$GitHubRepo/$Branch/Field_Test_Automation-Tool.bat?t=$Timestamp"
+    if (-not [string]::IsNullOrWhiteSpace($CleanVersionStr)) {
+        $RemoteVersion = [version]$CleanVersionStr
 
-        $Headers = @{
-            "Authorization" = "token $GitHubToken"
-            "User-Agent"    = "FTEasyTool-Updater" 
-        }
+        if ($RemoteVersion -gt $CurrentVersion) {
+            
+            $updTitle = "FT Easy Tool - OTA Update"
+            $updMsg = "A new version ($RemoteVersion) is available!`n`nDo you want to update now? The tool will restart."
+            
+            $decision = [System.Windows.Forms.MessageBox]::Show($updMsg, $updTitle, [System.Windows.Forms.MessageBoxButtons]::YesNo, [System.Windows.Forms.MessageBoxIcon]::Information, [System.Windows.Forms.MessageBoxDefaultButton]::Button1, [System.Windows.Forms.MessageBoxOptions]::DefaultDesktopOnly)
+            
+            if ($decision -eq [System.Windows.Forms.DialogResult]::Yes) {
+                
+                $tempFile = Join-Path $env:TEMP "FTEasyTool_update.tmp"
+                
+                Invoke-WebRequest -Uri $RemoteScriptUrl -Headers $Headers -OutFile $tempFile -UseBasicParsing -ErrorAction Stop
 
-        $RemoteVersionStr = Invoke-RestMethod -Uri $RemoteVersionUrl -Headers $Headers -UseBasicParsing -ErrorAction Stop
-        $CleanVersionStr = $RemoteVersionStr -replace '[^\d\.]', ''
-
-        if (-not [string]::IsNullOrWhiteSpace($CleanVersionStr)) {
-            $RemoteVersion = [version]$CleanVersionStr
-
-            if ($RemoteVersion -gt $CurrentVersion) {
-                $updTitle = "FT Easy Tool - OTA Update"
-                $updMsg = "A new version ($RemoteVersion) is available!`n`nDo you want to update now? The tool will restart."
-
-                $decision = [System.Windows.Forms.MessageBox]::Show($updMsg, $updTitle, [System.Windows.Forms.MessageBoxButtons]::YesNo, [System.Windows.Forms.MessageBoxIcon]::Information, [System.Windows.Forms.MessageBoxDefaultButton]::Button1, [System.Windows.Forms.MessageBoxOptions]::DefaultDesktopOnly)
-
-                if ($decision -eq [System.Windows.Forms.DialogResult]::Yes) {
-                    $tempFile = Join-Path $env:TEMP "FTEasyTool_update.tmp"
-                    Invoke-WebRequest -Uri $RemoteScriptUrl -Headers $Headers -OutFile $tempFile -UseBasicParsing -ErrorAction Stop
-
-                    if (Test-Path $tempFile) {
-                        $cmdArgs = "/c ping 127.0.0.1 -n 2 > nul & move /y `"$tempFile`" `"$env:SCRIPT_PATH`" > nul & start `"`" `"$env:SCRIPT_PATH`""
-                        Start-Process -FilePath "cmd.exe" -ArgumentList $cmdArgs -WindowStyle Hidden -Verb RunAs
-                        [Environment]::Exit(0)
-                    }
+                if (Test-Path $tempFile) {
+                    $cmdArgs = "/c ping 127.0.0.1 -n 2 > nul & move /y `"$tempFile`" `"$env:SCRIPT_PATH`" > nul & start `"`" `"$env:SCRIPT_PATH`""
+                    
+                    Start-Process -FilePath "cmd.exe" -ArgumentList $cmdArgs -WindowStyle Hidden -Verb RunAs
+                    
+                    [Environment]::Exit(0)
                 }
             }
         }
-    } catch {
-        $ErroReal = $_.Exception.Message
-        
-        # Se o token estiver incorreto, revogado ou vencido (Erro 404/401), apaga o arquivo para forçar um novo input na próxima vez
-        if ($ErroReal -match "401" -or $ErroReal -match "404") {
-            Remove-Item -Path $TokenFile -Force -ErrorAction SilentlyContinue
-            [System.Windows.Forms.MessageBox]::Show("Falha de autenticação no GitHub. O token fornecido é inválido, expirou ou não tem permissão de leitura.`n`nO registro foi apagado. Reinicie a ferramenta para inserir um novo token.", "OTA Auth Error", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Warning, [System.Windows.Forms.MessageBoxDefaultButton]::Button1, [System.Windows.Forms.MessageBoxOptions]::DefaultDesktopOnly)
-        } else {
-            [System.Windows.Forms.MessageBox]::Show("Failed to download update: $ErroReal", "OTA Error", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error, [System.Windows.Forms.MessageBoxDefaultButton]::Button1, [System.Windows.Forms.MessageBoxOptions]::DefaultDesktopOnly)
-        }
     }
+} catch {
+    $ErroReal = $_.Exception.Message
+    [System.Windows.Forms.MessageBox]::Show("Failed to check for updates: $ErroReal", "OTA Error", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error, [System.Windows.Forms.MessageBoxDefaultButton]::Button1, [System.Windows.Forms.MessageBoxOptions]::DefaultDesktopOnly)
 }
 # ==========================================
+
 
 # --- MAIN WINDOW ---
 $Form = New-Object System.Windows.Forms.Form
