@@ -83,14 +83,19 @@ $Branch       = "main"
 
 try {
     $Timestamp = (Get-Date).Ticks
+    $RemoteVersionUrl = "https://raw.githubusercontent.com/$GitHubUser/$GitHubRepo/$Branch/version.txt?t=$Timestamp"
+    $RemoteScriptUrl  = "https://raw.githubusercontent.com/$GitHubUser/$GitHubRepo/$Branch/Field_Test_Automation-Tool.bat?t=$Timestamp"
+
+    $Headers = @{
+        "User-Agent" = "FTEasyTool-Updater" 
+    }
+
     $RemoteVersionStr = Invoke-RestMethod -Uri $RemoteVersionUrl -Headers $Headers -UseBasicParsing -ErrorAction Stop
     $CleanVersionStr = $RemoteVersionStr -replace '[^\d\.]', ''
 
-    $RemoteVersion = $null
-    
-    # O TryParse tenta converter de forma invisível. Se falhar (ex: ler "11"), ele retorna falso e segue o código sem travar.
-    if ([System.Version]::TryParse($CleanVersionStr, [ref]$RemoteVersion)) {
-        
+    if (-not [string]::IsNullOrWhiteSpace($CleanVersionStr)) {
+        $RemoteVersion = [version]$CleanVersionStr
+
         if ($RemoteVersion -gt $CurrentVersion) {
             
             $updTitle = "FT Easy Tool - OTA Update"
