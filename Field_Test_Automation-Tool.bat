@@ -73,7 +73,7 @@ function Show-TimeoutMsgBox {
 # ==========================================
 # SISTEMA DE ATUALIZAÇÃO AUTOMÁTICA (REPOSITÓRIO PÚBLICO)
 # ==========================================
-$CurrentVersionStr = "1.0"
+$CurrentVersionStr = "1.1"
 $CurrentVersion = [version]$CurrentVersionStr
 
 # CONFIGURAÇÃO DO GITHUB
@@ -90,7 +90,8 @@ try {
         "User-Agent" = "FTEasyTool-Updater" 
     }
 
-    $RemoteVersionStr = Invoke-RestMethod -Uri $RemoteVersionUrl -Headers $Headers -UseBasicParsing -ErrorAction Stop
+    $WebResponse = Invoke-WebRequest -Uri $RemoteVersionUrl -Headers $Headers -UseBasicParsing -ErrorAction Stop
+    $RemoteVersionStr = $WebResponse.Content
     $CleanVersionStr = $RemoteVersionStr -replace '[^\d\.]', ''
 
     $RemoteVersion = $null
