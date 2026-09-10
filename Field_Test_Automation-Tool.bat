@@ -73,7 +73,7 @@ function Show-TimeoutMsgBox {
 # ==========================================
 # SISTEMA DE ATUALIZAÇÃO AUTOMÁTICA (REPOSITÓRIO PÚBLICO)
 # ==========================================
-$CurrentVersionStr = "1.0"
+$CurrentVersionStr = "1.1"
 $CurrentVersion = [version]$CurrentVersionStr
 
 # CONFIGURAÇÃO DO GITHUB
